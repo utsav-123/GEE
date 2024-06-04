@@ -1,0 +1,64 @@
+// Define the region of interest: Samagaun, Nepal
+var samagaun = ee.Geometry.Point([84.6166, 28.5833]);
+
+// Define the start and end dates for the time period of interest
+var startDate = '1981-01-01';
+var endDate = '2023-12-31';
+
+// Load the ERA5 monthly data collection
+var dataset = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY')
+                .filterBounds(samagaun)
+                .filterDate(startDate, endDate);
+
+// Function to extract monthly mean temperature in Celsius
+var extractTemperature = function(image) {
+  var date = ee.Date(image.get('system:time_start'));
+  var year = date.get('year');
+  var month = date.get('month');
+  
+  // Reduce the region to get the mean temperature at the point
+  var temp = image.select('temperature_2m').reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: samagaun,
+    scale: 1000
+  }).get('temperature_2m');
+  
+  // Convert temperature from Kelvin to Celsius
+  var tempCelsius = ee.Number(temp).subtract(273.15);
+  
+  // Return a feature with the date and temperature information
+  return ee.Feature(null, {
+    'year': year,
+    'month': month,
+    'temperature': tempCelsius
+  });
+};
+
+// Map the function over the dataset to get the temperature data
+var temperatureData = dataset.map(extractTemperature);
+
+// Convert the results to a feature collection
+var temperatureFC = ee.FeatureCollection(temperatureData);
+
+// Export the data to Google Drive as a CSV file
+Export.table.toDrive({
+  collection: temperatureFC,
+  description: 'Monthly_Temperature_Samagaun',
+  fileFormat: 'CSV'
+});
+
+// Print the feature collection to the console (for debugging purposes)
+print(temperatureFC);
+
+// Generate a chart to visualize the temperature data
+var chart = ui.Chart.feature.byFeature(temperatureFC, 'month', 'temperature')
+  .setOptions({
+    title: 'Monthly Temperature of Samagaun, Nepal (1981-2023)',
+    hAxis: {title: 'Month'},
+    vAxis: {title: 'Temperature (°C)'},
+    lineWidth: 1,
+    pointSize: 2,
+  });
+
+// Display the chart in the console
+print(chart);
