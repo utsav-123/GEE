@@ -1,0 +1,21 @@
+//Sentinel-2A image import
+var s2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterDate('2023-11-20','2023-11-30')
+.filterBounds(geometry)
+.mean()
+.clip(geometry)
+Map.addLayer(s2,imageVisParam,'sentinel-2a')
+
+//ndvi = (nir-red)/(nir+red)
+var ndvi = s2.normalizedDifference(['B8','B4'])
+Map.addLayer(ndvi,{},'ndvi')
+
+var nd = ndvi.select('nd')
+var c1 = nd.gt(-1).and(nd.lte(0)).multiply(1)
+var c2 = nd.gt(0).and(nd.lte(0.2)).multiply(2)
+var c3 = nd.gt(0.2).and(nd.lte(0.4)).multiply(3)
+var c4 = nd.gt(0.4).and(nd.lte(0.6)).multiply(4)
+var c5 = nd.gt(0.6).multiply(5)
+
+var reclass = c1.add(c2).add(c3).add(c4).add(c5)
+Map.addLayer(reclass,imageVisParam2,'reclass')
