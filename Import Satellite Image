@@ -1,0 +1,5 @@
+var image = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterDate('2024-04-19','2024-04-24')
+.filterBounds(table)
+print(image)
+Map.addLayer(image,{},'sentinel-2a')
