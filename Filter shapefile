@@ -1,0 +1,6 @@
+print(table)
+Map.addLayer(table,{},'Nepal')
+
+var filter = table.filter(ee.Filter.eq("DIST_NAME","Chitawan"))
+Map.addLayer(filter,{},"Chitwan")
+Map.centerObject(filter)
