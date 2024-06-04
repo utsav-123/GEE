@@ -1,0 +1,68 @@
+// Define the location of Samagaun, Nepal
+var samagaun = ee.Geometry.Point(84.6358, 28.5713);
+
+// Load ERA5-Land monthly dataset
+var era5 = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY")
+             .filterDate('1981-01-01', '2022-12-31')
+             .select('total_precipitation');
+
+// Function to convert precipitation from meters to millimeters
+function toMillimeters(image) {
+  return image.multiply(1000).copyProperties(image, ['system:time_start']);
+}
+
+// Convert precipitation to millimeters
+var era5_mm = era5.map(toMillimeters);
+
+// Function to calculate the annual total precipitation
+function calculateAnnualPrecipitation(year) {
+  var start = ee.Date.fromYMD(year, 1, 1);
+  var end = ee.Date.fromYMD(year, 12, 31);
+  var annual_precipitation = era5_mm.filterDate(start, end)
+                                    .sum()
+                                    .set('year', year);
+  return annual_precipitation;
+}
+
+// Generate a list of years from 1981 to 2022
+var years = ee.List.sequence(1981, 2022);
+
+// Map the function over the years to get annual precipitation images
+var annual_precipitation = ee.ImageCollection(years.map(calculateAnnualPrecipitation));
+
+// Reduce the annual precipitation data to the point of interest
+var annual_precipitation_at_point = annual_precipitation.map(function(image) {
+  var value = image.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: samagaun,
+    scale: 25000
+  }).get('total_precipitation');
+  return ee.Feature(null, {'year': image.get('year'), 'precipitation': value});
+});
+
+// Convert to a FeatureCollection
+var featureCollection = ee.FeatureCollection(annual_precipitation_at_point);
+
+// Export the data to a CSV file
+Export.table.toDrive({
+  collection: featureCollection,
+  description: 'Samagaun_Annual_Precipitation',
+  fileFormat: 'CSV'
+});
+
+// Print the results to the console
+print('Annual Precipitation at Samagaun:', featureCollection);
+
+// Create a chart
+var chart = ui.Chart.feature.byFeature(featureCollection, 'year', 'precipitation')
+              .setChartType('LineChart')
+              .setOptions({
+                title: 'Mean Annual Precipitation at Samagaun (1981-2022)',
+                hAxis: {title: 'Year'},
+                vAxis: {title: 'Precipitation (mm)'},
+                lineWidth: 2,
+                pointSize: 4,
+              });
+
+// Display the chart in the console
+print(chart);
