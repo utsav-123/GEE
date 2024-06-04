@@ -1,0 +1,3 @@
+Map.addLayer(table,{},'Glacier_2023')
+//Map.centerObject(table)
+Map.setCenter(84.62831, 28.59659,15)
