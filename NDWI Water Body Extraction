@@ -1,0 +1,23 @@
+var image = imageCollection
+.filterDate("2023-10-01","2023-10-10")
+.filterBounds(geometry)
+.mosaic()
+.clip(geometry)
+
+Map.addLayer(image,imageVisParam,'image')
+
+//ndwi = (green-nir)/(green+nir)
+var ndwi = image.normalizedDifference(['B3','B8'])
+print(ndwi)
+Map.addLayer(ndwi,{},'ndwi')
+
+//ndwi>0 ---------water bodies
+var ndwi_binary = ndwi.expression(
+  'b(0)>0 ? 1 :0 ',
+  {b: ndwi}
+  );
+  Map.addLayer(ndwi_binary,{},'ndwi_binary')
+  
+  var water = ndwi_binary.eq(1).selfMask()
+  Map.addLayer(water,{},'water')
+  
