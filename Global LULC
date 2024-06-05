@@ -1,0 +1,13 @@
+//Dynamic World V1 LULC
+var lulc = ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
+.filterDate('2023-01-01','2023-12-30')
+.filterBounds(geometry)
+.select('label')
+
+var vis = {
+  min: 0,
+  max: 8,
+  palette: ["#419bdf","	#397d49","#88b053","#7a87c6","#e49635","#e49635","#c4281b","#a59b8f","#b39fe1"],
+};
+
+Map.addLayer(lulc,vis,'lulc')
