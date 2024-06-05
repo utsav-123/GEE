@@ -1,0 +1,34 @@
+//Filter the shapefile
+var district = table.filter(ee.Filter.eq("DIST_NAME","Chitawan"))
+Map.addLayer(district,{},"Chitwan")
+Map.centerObject(district, 9)
+
+//Import LST image collection
+var modis = ee.ImageCollection("MODIS/061/MOD11A1")
+.filterDate('2023-01-01','2023-12-31')
+.select('LST_Day_1km')
+
+//Convert kelvin to celsius
+var modcel = modis.map(function(img){
+return img
+.multiply(0.02)  // band scale is 0.02
+.subtract(273.15)
+.copyProperties(img,['system:time_start'])
+})
+
+//Chart of LST temporal analysis
+var tsc = ui.Chart.image.series({
+  imageCollection : modcel,
+  region : district,
+  reducer : ee.Reducer.mean(),
+  scale : 1000,
+  xProperty : "system:time_start"})
+  .setOptions({
+    title : "LST temporal analysis",
+    vAxis : {title:'LSTcelsius'}});
+    
+    print(tsc)
+    
+    //Image visualization
+    var mean = modcel.mean().clip(district)
+    Map.addLayer(mean,imageVisParam,'LST Mean')
