@@ -1,0 +1,24 @@
+//Import sentinel-2a image collection
+var image = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterBounds(geometry)
+.filterDate('2023-11-01','2023-11-30')
+
+//Create a single image from this image collection using mosaic function
+var mosaic = image.mosaic();
+
+//Select bands 3,4,8
+var imagebands = mosaic.select(['B3','B4','B8'])
+
+//Calculate NDWI
+var ndwi = imagebands.normalizedDifference(['B3','B8']).rename("NDWI")
+Map.addLayer(ndwi,{},'ndwi')
+
+//Create a binary raster
+var watermask = ndwi.gt(0).rename('watermask')
+
+//Calculate NDTI
+var ndti = imagebands.normalizedDifference(['B4','B3']).rename("NDTI")
+
+//Clip NDTI from Watermask
+var clipndti = ndti.updateMask(watermask)
+Map.addLayer(clipndti,{},'ndti')
