@@ -1,0 +1,22 @@
+//import satellite imagery
+var image = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterDate('2024-02-01','2024-02-25')
+.filterBounds(geometry)
+.mosaic()
+.clip(geometry) //mosaic created to single image then only we can clip
+.select('B3','B4','B5','B6','B7','B8')
+print(image)
+Map.addLayer(image,imageVisParam,'image')
+
+//make training datasets
+var training = image.sample({
+  region: geometry,
+  scale: 10,
+  numPixels:1000
+});
+
+//train the data
+var clusterer = ee.Clusterer.wekaKMeans(5).train(training)
+
+var unsup = image.cluster(clusterer);
+Map.addLayer(unsup.randomVisualizer(),{},'unsup')
