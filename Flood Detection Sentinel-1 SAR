@@ -1,0 +1,41 @@
+//Extract Chitwan district from Nepal shapefile
+var aoi = table.filter(ee.Filter.eq("DIST_NAME","Chitawan"))
+Map.addLayer(aoi,{},'aoi')
+
+//Import the satellite image collection
+var collection = ee.ImageCollection("COPERNICUS/S1_GRD")
+.filterBounds(aoi)
+.filter(ee.Filter.listContains("transmitterReceiverPolarisation","VV"))
+.select('VV')
+
+//Filter the before and after flood imagery
+var before = collection.filterDate('2023-05-01','2023-05-15').mosaic()
+var after = collection.filterDate('2023-10-01','2023-10-30').mosaic()
+
+var before_clip = before.clip(aoi)
+var after_clip = after.clip(aoi)
+
+//apply smoothening filter
+var before_s = before_clip.focal_median(30, "circle","meters")
+var after_s = after_clip.focal_median(30, "circle","meters")
+
+//Difference
+var difference = after_s.subtract(before_s)
+
+var flood_extent = difference.lt(-3)
+var flood = flood_extent.updateMask(flood_extent)
+
+//Diplay maps
+Map.addLayer(before_clip,{min:-30, max: 0},"Before_flood")
+Map.addLayer(after_clip,{min:-30, max: 0},"After_flood")
+Map.addLayer(difference,{},"Difference")
+Map.addLayer(flood,{},"Flood")
+
+Export.image.toDrive({
+  image : flood.float(),
+  description : "flood_gkp",
+  scale :10, 
+  maxPixels : 1e13,
+  region : aoi,
+  crs : "EPSG: 4326"
+  })
