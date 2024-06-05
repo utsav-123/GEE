@@ -1,0 +1,20 @@
+//Import Satellite Images
+var image = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterBounds(geometry)
+.filterDate('2023-06-01','2023-06-30')
+.median()
+
+//ndvi calculation
+var ndvi = image.normalizedDifference(["B8","B4"]).rename('NDVI')
+Map.addLayer(ndvi,{},'ndvi')
+
+//ndwi calculation
+var ndwi = image.normalizedDifference(["B8","B11"]).rename('NDWI')
+Map.addLayer(ndwi,{},'ndwi')
+
+//nddi calculation
+var sub = ndvi.subtract(ndwi)
+var sum = ndvi.add(ndwi)
+var nddi = sub.divide(sum)
+var clip = nddi.clip(geometry)
+Map.addLayer(clip,{},'nddi')
