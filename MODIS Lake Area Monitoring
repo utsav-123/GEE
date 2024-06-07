@@ -1,3 +1,4 @@
+//MOD09A1.061 Terra Surface Reflectance 8-Day Global 500m
 Map.centerObject(geometry);
 
 var modis = imageCollection
