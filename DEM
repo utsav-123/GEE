@@ -1,0 +1,41 @@
+// NASA DEM 30m --------contains image
+Map.centerObject(geometry);
+
+//Import DEM
+var srtm = image.select('elevation');   //image is variable named for nasa dem directly imported
+Map.addLayer(srtm.clip(geometry),{},'dem30',false)
+
+//Visualize the histogram
+print(
+  ui.Chart.image.histogram(srtm,geometry,100)
+  )
+ 
+ //Visualize slope 
+  var slope = ee.Terrain.slope(srtm);
+  Map.addLayer(slope.clip(geometry),{},'slope',false)
+ 
+ //Visualize aspect 
+  var aspect = ee.Terrain.aspect(srtm);
+  Map.addLayer(aspect.clip(geometry),{},'aspect',false)
+ 
+ //Visualize elevation, slope, aspect, hillshade all at once
+  var product = ee.Terrain.products(srtm)
+  print(product)
+  
+  //Export image to drive
+  Export.image.toDrive({
+    image: product.clip(geometry).float(),
+    description: 'dem_product',
+    scale: 30,
+    region: geometry,
+    crs: product.getInfo().crs,
+    folder: 'DEM',
+    maxPixels: 1e13
+  })
+
+
+//ALOS DSM 30m -----------contains image collection so median to be calculated
+var alos = imageCollection.select('DSM').mean()
+print(
+  ui.Chart.image.histogram(alos,geometry,100)
+  )
