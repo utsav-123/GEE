@@ -2,9 +2,9 @@
 var samagaun = ee.Geometry.Point(84.6358, 28.5713);
 
 // Load ERA5-Land monthly dataset
-var era5 = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY")
+var era5 = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR")
              .filterDate('1981-01-01', '2022-12-31')
-             .select('total_precipitation');
+             .select('total_precipitation_sum');
 
 // Function to convert precipitation from meters to millimeters
 function toMillimeters(image) {
@@ -36,7 +36,7 @@ var annual_precipitation_at_point = annual_precipitation.map(function(image) {
     reducer: ee.Reducer.mean(),
     geometry: samagaun,
     scale: 25000
-  }).get('total_precipitation');
+  }).get('total_precipitation_sum');
   return ee.Feature(null, {'year': image.get('year'), 'precipitation': value});
 });
 
@@ -66,3 +66,5 @@ var chart = ui.Chart.feature.byFeature(featureCollection, 'year', 'precipitation
 
 // Display the chart in the console
 print(chart);
+
+
