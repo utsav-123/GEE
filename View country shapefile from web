@@ -1,0 +1,16 @@
+//USDOS Large Scale International Boundary Polygon
+
+var country = ee.FeatureCollection("USDOS/LSIB/2017")
+var nepal = country.filter(ee.Filter.eq("COUNTRY_NA","Nepal"))
+
+Map.addLayer(nepal,{},'Nepal')
+Map.centerObject(nepal)
+
+Export.image.toDrive({
+    image: nepal,
+    description: 'Nepal',
+    scale: 30,
+    region: nepal,
+    crs: nepal.getInfo().crs,
+    maxPixels: 1e13
+  })
