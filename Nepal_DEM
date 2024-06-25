@@ -1,0 +1,18 @@
+var country = ee.FeatureCollection("USDOS/LSIB/2017")
+var nepal = country.filter(ee.Filter.eq("COUNTRY_NA","Nepal"))
+Map.addLayer(nepal,{},'Nepal')
+
+var image = ee.Image("NASA/NASADEM_HGT/001")
+var elevation = image.select('elevation')
+
+Map.addLayer(elevation.clip(nepal),{},'Elevation')
+
+Export.image.toDrive({
+    image: elevation.clip(nepal).float(),
+    description: 'dem_nepal',
+    scale: 30,
+    region: nepal,
+    crs: elevation.getInfo().crs,
+    folder: 'DEM',
+    maxPixels: 1e13
+  })
