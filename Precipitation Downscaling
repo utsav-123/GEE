@@ -1,0 +1,132 @@
+
+// Time selection -  data taken from persiann cdr precipitation
+var time_start = '2023', time_end = '2024'
+var pr = imageCollection
+.filterDate(time_start, time_end);
+//print(pr)
+
+//Getting monthly precipitation because daily precipitation are irregular; someday rainfall someday not
+var month_list = ee.List.sequence (1,12)
+//print (month_list)
+
+//Creating function for each month (Dependent Variable) (converting to monthly version)
+var pr_monthly =ee.ImageCollection(month_list.map(function(month){
+ var month_img = pr.filter(ee.Filter.calendarRange(month, month, 'month')).sum()
+ var date = ee.Date.fromYMD(2023, month, 1)
+ var resample = month_img.resample().reproject({crs: month_img.projection().crs(), scale: 500})
+ return resample.toInt()
+ .set('system:time_start', date.millis())
+ .set ('system:index', date.format('YYYY-MM-dd'))
+}))
+//print(pr_monthly)
+
+// (Independent Variables) Find environmental parameters that have relation with precipitation and have higher spatial resolution (500m or 1km resolution)
+//LULC- dont change with time-data taken from modis
+var lc = imageCollection2.mode().select('LC_Type1')
+//print(lc)
+
+//DEM - used resolution of 500m or 1km- dont change with time-data taken from gtopo30
+var dem = image
+
+//NDVI- changes with time-data taken from modis
+var ndvi = imageCollection3.select('NDVI')
+.filterDate(time_start, time_end)
+
+//Convert ndvi to monthly data
+var ndvi_monthly = ee.ImageCollection(month_list.map(function(month){
+var month_img = ndvi.filter(ee.Filter.calendarRange(month, month, 'month')).median() 
+ var date = ee.Date.fromYMD(2023, month, 1)  
+ return month_img.multiply(0.0001)
+ .set('system:time_start', date.millis())
+ .set('system:index', date.format('YYYY-MM-dd'))
+}))
+//print(ndvi_monthly)
+
+//Temperature-data taken from modis
+var temp = imageCollection4.select('LST_Day_1km')
+.filterDate(time_start, time_end)
+//Convert temperature to monthly data
+var temp_monthly = ee.ImageCollection(month_list.map(function(month){
+var month_img = temp.filter(ee.Filter.calendarRange(month, month, 'month')).median() 
+ var date = ee.Date.fromYMD(2023, month, 1)  
+ return month_img.multiply(0.02)
+ .set('system:time_start', date.millis())
+ .set('system:index', date.format('YYYY-MM-dd'))
+}))
+//print(temp_monthly)
+
+// Create single image collection for 2023 for each month with lulc DEM, ndvi, temp, precip because for statistical analysis it is required to have integrated dataset
+var collection = ndvi_monthly.combine(temp_monthly).combine(pr_monthly).map(function(img){
+  return img.addBands(dem).addBands(lc)
+  .copyProperties(img, img.propertyNames())
+})
+//print(collection)
+
+//modeling- tainning data, modeling the data and image collection
+var pr_model = collection.map(function(img){
+  var band_names = img.bandNames();
+  var band_names_indep = img.bandNames().remove('precipitation')
+  
+  var training = img.stratifiedSample({
+    numPoints: 100, classBand: 'precipitation', region: geometry, scale: 1000
+  });
+ var model = ee.Classifier.smileGradientTreeBoost(100).train({
+   features: training, classProperty: 'precipitation', inputProperties: band_names
+ }).setOutputMode('REGRESSION');
+ 
+ var pr1000 = img.select(band_names_indep).classify(model)
+ return pr1000.rename('pr1000').addBands(img.select(['precipitation'],['pr27000']))
+ .copyProperties(img, img.propertyNames())
+ 
+});
+
+//print (pr_model)
+
+//watershed taken as roi- data from hydroshed
+var roi = table.filterBounds(geometry2).map(function(feature){
+  return feature.simplify(1000)
+})
+Map.centerObject(roi)
+Map.addLayer(roi)
+Map.addLayer(pr_model.select(['pr27000']).toBands().clip(roi), [], 'pr_initial', false)
+Map.addLayer(pr_model.select(['pr1000']).toBands().clip(roi), [], 'pr_sharpened', false)
+
+var pr_mean = pr_model.select('pr1000').mean()
+
+var pr_1km_cor = pr_model.map(function(img){
+  return img.select('pr1000').add(img.select('pr27000').subtract(pr_mean))
+  .copyProperties(img, img.propertyNames())
+  })
+  print (pr_1km_cor)
+
+Map.addLayer(pr_1km_cor.toBands().clip(roi), [], 'pr_sharpened_cor', false)
+
+
+//Export to drive
+Export.image.toDrive({
+  image: pr_model.select(['pr27000']).toBands().clip(roi),
+  description: 'pr_27km',
+  region: roi,
+  crs: 'EPSG:4326',
+  folder: 'test',
+  scale: 27000
+})
+
+Export.image.toDrive({
+  image: pr_model.select(['pr1000']).toBands().clip(roi),
+  description: 'pr_1km',
+  region: roi,
+  crs: 'EPSG:4326',
+  folder: 'test',
+  scale: 1000
+})
+
+Export.image.toDrive({
+  image: pr_1km_cor.toBands().clip(roi),
+  description: 'pr_1km_cor',
+  region: roi,
+  crs: 'EPSG:4326',
+  folder: 'test',
+  scale: 1000
+})
+
