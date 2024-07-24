@@ -117,7 +117,7 @@ function addCategoricalLegend(panel, dict, title) {
 // Add the legend to the map
 addCategoricalLegend(legend, dict, 'Land Cover Class');
 
-// Add image to the map
+// Add image to the map and geometry is the shape file of kankai basin here
 Map.addLayer(ee.ImageCollection(esri_lulc10.filterDate('2017-01-01','2017-12-31').mosaic().clip(geometry)).map(remapper), {min:1, max:9, palette:dict['colors']}, '2017 LULC 10m')
 Map.addLayer(ee.ImageCollection(esri_lulc10.filterDate('2018-01-01','2018-12-31').mosaic().clip(geometry)).map(remapper), {min:1, max:9, palette:dict['colors']}, '2018 LULC 10m')
 Map.addLayer(ee.ImageCollection(esri_lulc10.filterDate('2019-01-01','2019-12-31').mosaic().clip(geometry)).map(remapper), {min:1, max:9, palette:dict['colors']}, '2019 LULC 10m')
