@@ -1,0 +1,11 @@
+//Compute buffer of polygon
+var buffer = geometry.buffer(10000) // It will show error if we used shapefile instead of manual polygon making
+
+//Compute centroid of polygon
+var centroid = geometry.centroid()
+
+//Display results
+Map.addLayer(geometry, {}, 'Geometry')
+Map.addLayer(buffer, {}, 'buffer')
+Map.addLayer(centroid, {}, 'centroid')
+Map.centerObject(buffer)
