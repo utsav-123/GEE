@@ -1,0 +1,14 @@
+// Import SRTM DEM 
+var srtm = ee.Image("USGS/SRTMGL1_003")
+
+Map.addLayer(srtm.select('elevation').clip(table), {}, 'srtm') // table is variable for shapefile of aoi
+
+ Export.image.toDrive({
+    image:srtm.select('elevation').clip(table).float(),
+    description: 'srtm_kankai',
+    scale: 30,
+    region: table,
+    crs: 'EPSG:4326',
+    folder: 'DEM',
+    maxPixels: 1e13
+  })
