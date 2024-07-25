@@ -1,0 +1,33 @@
+//Define country boundary
+var country = ee.FeatureCollection("USDOS/LSIB/2017")
+var nepal = country.filter(ee.Filter.eq("COUNTRY_NA","Nepal"))
+
+//Calculate NDVI and NDWI
+var addNDVIBands = function(image){
+  var NDVI = image.addBands(image.normalizedDifference(['B8','B4']))
+  var NDWI = NDVI.addBands(NDVI.normalizedDifference(['B3','B8']))
+  return NDWI.addBands(NDWI.metadata('system:time_start'))
+}
+
+//Load imageries
+var img = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterDate('2023-01-01','2024-01-30')
+.filterBounds(nepal)
+//.filter(ee.Filter.lte('CLOUD_PIXEL_PERCENTAGE',50))
+.map(addNDVIBands)
+var img_ndvi = ee.ImageCollection(img).select("nd")
+var ndvi = img_ndvi.mean()
+print(ndvi)
+
+//Compute standard deviation (SD) as texture of NDVI
+var SD_kernel = ndvi.reduceNeighborhood({
+  reducer: ee.Reducer.stdDev(),
+  kernel: ee.Kernel.circle(3),
+}) 
+
+//Display the results
+var vizParams = {'bands' : 'B2,B3,B4', 'min':0, 'max':3000}
+Map.addLayer(img.min().clip(nepal), vizParams, "Sentinel 2 Nepal")
+Map.addLayer(ndvi.clip(nepal),{min:-1, max:1, palette: ['00FF00','000000']}, 'NDVI')
+Map.addLayer(SD_kernel.clip(nepal),{min:0, max:0.3}, 'SD Kernel NDVI')
+Map.centerObject(nepal, 9)
