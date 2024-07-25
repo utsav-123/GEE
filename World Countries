@@ -1,0 +1,19 @@
+//Import countries feature 
+var countries = ee.FeatureCollection("USDOS/LSIB/2017")
+
+//Display as default and custom color from colorbrewer
+Map.addLayer(countries, {}, 'Default' )
+Map.addLayer(countries, {color: 'FF0000'}, 'Colored Fill')
+
+//Create variable to remove fill color and mark only boundary 
+var empty = ee.Image().byte() // Empty the image
+
+//Paint the polygon outline 
+var outline = empty.paint({
+  featureCollection: countries,
+  color: 1,
+  width: 1,
+  })
+  
+  //Display output
+  Map.addLayer(outline, {palette:'FF0000'}, 'Colored Outline')
