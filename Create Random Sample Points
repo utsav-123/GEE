@@ -1,0 +1,10 @@
+// View the feature collection
+print (geometry)
+Map.addLayer(geometry, {},'Geometry')
+
+// Create 500 random sample points in the region
+var randomPoints = ee.FeatureCollection.randomPoints(geometry, 500)
+
+//Display the points
+Map.addLayer(randomPoints, {}, 'Sample_Points')
+Map.centerObject(geometry)
