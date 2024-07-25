@@ -2,24 +2,24 @@
 Map.centerObject(geometry);
 
 //Import DEM
-var srtm = image.select('elevation');   //image is variable named for nasa dem directly imported
-Map.addLayer(srtm.clip(geometry),{},'dem30',false)
+var nasa = image.select('elevation');   //image is variable named for nasa dem directly imported
+Map.addLayer(nasa.clip(geometry),{},'dem30',false)
 
 //Visualize the histogram
 print(
-  ui.Chart.image.histogram(srtm,geometry,100)
+  ui.Chart.image.histogram(nasa,geometry,100)
   )
  
  //Visualize slope 
-  var slope = ee.Terrain.slope(srtm);
+  var slope = ee.Terrain.slope(nasa);
   Map.addLayer(slope.clip(geometry),{},'slope',false)
  
  //Visualize aspect 
-  var aspect = ee.Terrain.aspect(srtm);
+  var aspect = ee.Terrain.aspect(nasa);
   Map.addLayer(aspect.clip(geometry),{},'aspect',false)
  
  //Visualize elevation, slope, aspect, hillshade all at once
-  var product = ee.Terrain.products(srtm)
+  var product = ee.Terrain.products(nasa)
   print(product)
   
   //Export image to drive
