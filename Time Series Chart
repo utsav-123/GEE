@@ -1,0 +1,26 @@
+//Load landsat 8 image
+var landsat = ee.ImageCollection("LANDSAT/LC08/C02/T1_TOA").select('B[1-7]')
+.filter(ee.Filter.eq('WRS_PATH', 139))
+.filter(ee.Filter.eq('WRS_ROW', 41))
+print ('Landsat:', landsat)
+
+//Sort by cloud cover property, get least cloudy image
+var image = ee.Image(landsat.sort('CLOUD_Cover').first())
+print('Least cloud image', image)
+
+//Visualization parameter
+var vizTrue = {
+  bands: ['B4','B3','B2'],
+  min: 0,
+  max: 0.5,
+  gamma: [0.95, 1.1, 1]
+}
+
+//Define region of intersest as buffer around a point
+var sample_point = ee.Geometry.Point( 88.01916667, 26.91348889).buffer(500)
+Map.addLayer(image, vizTrue, 'Landsat Cloud Free Composition')
+Map.addLayer(sample_point, {}, 'Sample Point')
+Map.centerObject(image, 10)
+
+//Create and print the chart
+print(ui.Chart.image.series(landsat, sample_point, ee.Reducer.mean(),30))
