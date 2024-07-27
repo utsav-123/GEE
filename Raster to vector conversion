@@ -1,0 +1,38 @@
+//Load country shapefile
+var country = ee.FeatureCollection("USDOS/LSIB/2017")
+var nepal = country.filter(ee.Filter.eq("COUNTRY_NA","Nepal"))
+
+Map.addLayer(nepal, {'palette': 'f03b20', 'opacity':1}, 'Nepal', false)
+Map.centerObject(nepal, 6)
+
+//VIIRS night time light
+var start = ee.Date('2023-01-01')
+var end = ee.Date('2023-12-30')
+var night = ee.ImageCollection("NOAA/VIIRS/DNB/MONTHLY_V1/VCMCFG")
+.filterDate(start, end)
+.filterBounds(nepal)
+.select('avg_rad')
+.mean()
+
+//Define arbitary thresholds on the 6-bit nightlights image.
+var nightclass = night.gt(5).add(night.gt(50)).add(night.gt(100))
+nightclass = nightclass.updateMask(nightclass.neq(0))
+
+//Convert the zones of the thresholded nightlights to vectors.
+var vectors = nightclass.addBands(nightclass).reduceToVectors({
+  geometry: nepal,
+  crs: night.projection(),
+  scale:1000,
+  geometryType: 'polygon',
+  eightConnected: false,
+  labelProperty: 'nightclass',
+  reducer: ee.Reducer.mean()
+})
+
+//Display the thresholds.
+Map.addLayer(nightclass.clip(nepal), {min: 1, max: 3, palette: ['0000FF', '00FF00', 'FF0000']},'Raster')
+
+//Make a display image for the vectors, add it to the map.
+var display = ee.Image(0).updateMask(0).paint(vectors,'000000',3);
+Map.addLayer(display,{palette:'000000'},'Vector');
+Map.centerObject(nepal,6);
