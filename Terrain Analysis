@@ -1,0 +1,11 @@
+Map.addLayer(table, {}, 'nepal') //table is shapefile of Nepal
+
+//Import srtm dem
+var srtm = ee.Image("USGS/SRTMGL1_003")
+var slope = ee.Terrain.slope(srtm)
+var slopevis = {min:0, max: 35, palette:['green', 'yellow', 'red']}
+
+//Display
+Map.addLayer(srtm.clip(table), {min:0, max:4000}, 'DEM')
+Map.addLayer(slope.clip(table), slopevis, 'Slope')
+Map.centerObject(table, 6)
