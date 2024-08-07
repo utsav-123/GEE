@@ -1,0 +1,48 @@
+//Load Area of Nepal
+Map.addLayer(table, {},'Nepal')
+Map.centerObject(table)
+
+//Load NASADEM
+var image = ee.Image("NASA/NASADEM_HGT/001")
+var elevation = image.select('elevation')
+Map.addLayer(elevation.clip(table),{},'Elevation')
+
+//Elevation above 3600m
+var elev3600 = elevation.gt(3600)
+Map.addLayer(elev3600.clip(table).updateMask(elev3600),{},'Elevation3600')
+
+//Load Sentinel-2a data and filter by date and region
+var sentinel2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+.filterDate('2022-01-01','2022-12-30')
+.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 5))
+.filterBounds(table)
+ .median()
+ .clip(table)
+ Map.addLayer(sentinel2,{},'Sentinel-2a')
+ 
+//Calculate NDWI
+var ndwi = sentinel2.normalizedDifference(['B3', 'B8']).rename('NDWI')
+
+//NDWI above 3600m
+var ndwielev3600 = ndwi.updateMask(elev3600)
+Map.addLayer(ndwielev3600,{},'NDWI3600')
+
+var ndwi_binary = ndwielev3600.expression(
+  'b(0)>0.33 ? 1 :0 ',
+  {b: ndwi}
+  );
+  Map.addLayer(ndwi_binary,{},'ndwi_binary')
+  
+  var water = ndwi_binary.eq(1).selfMask()
+  Map.addLayer(water,{palette: 'blue'},'water')
+  
+  Export.image.toDrive({
+  image: water,
+  description:'Water3600m & NDWI>0.33',
+  scale:10,
+  maxPixels:1e13,
+  region: table,
+  crs:'EPSG:4326'
+  
+}
+);
