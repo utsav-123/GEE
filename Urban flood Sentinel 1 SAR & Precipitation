@@ -1,0 +1,66 @@
+ Map.centerObject(geometry,9)
+ 
+ //Load Sentinel 1A data before flood event
+ var sar_before = imageCollection
+ .filterDate('2019-12-20','2019-12-29')
+ .filterBounds(geometry)
+ .filter(ee.Filter.listContains('transmitterReceiverPolarisation','VV'))
+ .filter(ee.Filter.eq('instrumentMode','IW'))
+ .filter(ee.Filter.eq('orbitProperties_pass','ASCENDING'))
+ .select('VV')
+ .map(function(img){
+   return img.focalMean(30,'square','meters')
+   .copyProperties(img,img.propertyNames())
+ })
+ print (sar_before)
+ Map.addLayer(sar_before.mean().clip(geometry),{},'sar_before',false)
+ 
+  //Load Sentinel 1A data after flood event
+ var sar_after = imageCollection
+ .filterDate('2019-12-30','2020-01-03')
+ .filterBounds(geometry)
+ .filter(ee.Filter.listContains('transmitterReceiverPolarisation','VV'))
+ .filter(ee.Filter.eq('instrumentMode','IW'))
+ .filter(ee.Filter.eq('orbitProperties_pass','ASCENDING'))
+ .select('VV')
+ .map(function(img){
+   return img.focalMean(30,'square','meters')
+   .copyProperties(img,img.propertyNames())
+ })
+ print(sar_after)
+ Map.addLayer(sar_after.mean().clip(geometry),{},'sar_after',false)
+ 
+ //Visualize the change
+ var change = (sar_before.min()).subtract(sar_after.min())
+ Map.addLayer(change.clip(geometry),{},'change',false)
+ 
+ //Import landcover data to reduce noise of water bodies from Dymanic World V1
+ var water_mask = imageCollection2.select('label')
+ .filterDate('2018','2021')
+ .filterBounds(geometry)
+ .mode().eq(0).not()
+ 
+ //Change threshold to reduce the noise
+ var thr = change.gt(5).updateMask(water_mask)
+ Map.addLayer(thr.clip(geometry),{},'change_thr',false)
+ 
+ //Visualize flooded region only
+ var flooded = thr.updateMask(thr)
+ Map.addLayer(flooded.clip(geometry),{palette:['blue']},'flooded',false)
+ 
+ //Calculate the area of flooded region
+ var area_img = flooded.multiply(ee.Image.pixelArea().divide(1e6)) //Area of each pixel
+ 
+ var flood_area = area_img.reduceRegion({                     //Area of flooded region
+   reducer: ee.Reducer.sum(),geometry:geometry,scale:30
+ })
+ print(flood_area)
+ 
+ //Import precipitation data  GPM V7
+ var pr = imageCollection3.select('precipitation')
+ .filterDate('2019-12-25','2020-01-05')
+ 
+ print(
+   ui.Chart.image.series(pr, geometry, ee.Reducer.mean(),10000,'system:time_start')
+   )
+ 
