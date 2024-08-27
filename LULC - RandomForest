@@ -1,0 +1,118 @@
+//Load ROI
+Map.addLayer(roi)
+Map.centerObject(roi,10)
+
+//Choose image collection
+var l8 = ee.ImageCollection("LANDSAT/LC08/C02/T1_L2")
+
+//Filtering
+var image = l8.filterBounds(roi)
+             .filterDate('2023-01-01','2023-12-31')
+             .filterMetadata('CLOUD_COVER','less_than',5)
+             .median()
+             .clip(roi)
+//print(image)
+Map.addLayer(image, {} ,'landsat8')
+
+// Collect and merge training points
+
+var samples = Water.merge(Vegetation).merge(BareLand).merge(Builtup_Area)
+print(samples)
+
+//Select bands
+var bands = ['SR_B1','SR_B2','SR_B3','SR_B4','SR_B5','SR_B6','SR_B7']
+
+//Training Dataset-Extract band pixel values from training points
+var training = image.select(bands).sampleRegions({collection:samples,
+                                     properties:['Class'], 
+                                     scale : 30})
+print(training)
+
+//Roughly 70% data for training and 30% data for testing
+var trainData = training.randomColumn()   //distributes data randomly
+
+var trainset = trainData.filter(ee.Filter.lessThan('random',0.7))
+var testset = trainData.filter(ee.Filter.greaterThanOrEquals('random',0.7))
+
+//Create Classification Model
+var classifier = ee.Classifier.smileRandomForest(100).train({features: trainset,
+                            classProperty: 'Class',
+                            inputProperties: bands
+})
+
+//Classify the image
+var classified = image.select(bands).classify(classifier)
+
+//Display the result
+Map.addLayer(classified, {min: 0, max:3, palette: ['blue','green','yellow','red']}, 'classified')
+
+//Accuracy calculation : Kappa, producers, consumers and overall accuracy
+var confusionMatrix = ee.ConfusionMatrix(testset.classify(classifier).errorMatrix({
+  actual:'Class',
+  predicted:'classification'
+}))
+print('Confusion Matrix:', confusionMatrix);
+print('Overall Accuracy:', confusionMatrix.accuracy());
+print('Kappa Coefficient:', confusionMatrix.kappa());
+print('Producers Accuracy:', confusionMatrix.producersAccuracy());
+print('Consumers Accuracy:', confusionMatrix.consumersAccuracy());
+
+// Add a legend to the map
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+
+var legendTitle = ui.Label({
+  value: 'Land Cover Legend',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+  }
+});
+
+legend.add(legendTitle);
+
+// Define the palette for each land cover class
+var palette = ['blue', 'green', 'yellow', 'red'];
+var names = ['Water', 'Vegetation', 'Bare Land', 'Built-up Area'];
+
+// Create and add the legend items
+for (var i = 0; i < names.length; i++) {
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: palette[i],
+      padding: '8px',
+      margin: '0 0 4px 0'
+    }
+  });
+
+  var description = ui.Label({
+    value: names[i],
+    style: {
+      margin: '0 0 4px 6px'
+    }
+  });
+
+  legend.add(ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  }));
+}
+
+// Add the legend to the map
+Map.add(legend);
+
+//Export image to drive
+Export.image.toDrive({
+  image: classified,
+  description:'LULC',
+  scale:30,
+  maxPixels:1e13,
+  region: roi,
+  crs:'EPSG:4326'
+  });
