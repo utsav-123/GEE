@@ -1,0 +1,41 @@
+Map.centerObject(geometry)
+
+//Modis surface reflectance image
+var modis = imageCollection
+.filterDate('2022','2023')
+.map(function(img){
+  var bands = img.select('sur_refl.*').multiply(0.0001)
+  var ndwi = bands.normalizedDifference(['sur_refl_b02','sur_refl_b04']).rename('ndwi')
+  return ndwi
+  .copyProperties(img, img.propertyNames())
+})
+print (modis)
+
+Map.addLayer(modis.mean().clip(geometry),[],'modis',false)
+
+print(
+  ui.Chart.image.histogram(modis.median(),geometry,500)
+  )
+  
+//Otsu function to find the accurate threshold to separate water and non-water pixels
+var oeel=require('users/OEEL/lib:loadAllSF')
+
+var otsu = oeel.ImageCollection.OtsuThreshold(modis,'ndwi')
+
+print(otsu)
+
+print(
+  ui.Chart.image.histogram(otsu,geometry,500)
+  )
+  
+  var thr = ee.Number(otsu.reduceRegion({
+    reducer: ee.Reducer.mean(), geometry:geometry, scale:500
+  }).values().get(0));
+  
+  print ('water body threshold', thr)
+  
+  //Apply threshold on image
+  var ndwis = modis.filterDate('2022','2023').toBands().gt(thr)
+  print (ndwis)
+  Map.addLayer(ndwis.clip(geometry), [],'ndwi_thr',false)
+  
