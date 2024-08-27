@@ -57,6 +57,56 @@ print('Kappa Coefficient:', confusionMatrix.kappa());
 print('Producers Accuracy:', confusionMatrix.producersAccuracy());
 print('Consumers Accuracy:', confusionMatrix.consumersAccuracy());
 
+// Add a legend to the map
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-left',
+    padding: '8px 15px'
+  }
+});
+
+var legendTitle = ui.Label({
+  value: 'Land Cover Legend',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '18px',
+    margin: '0 0 4px 0',
+    padding: '0'
+  }
+});
+
+legend.add(legendTitle);
+
+// Define the palette for each land cover class
+var palette = ['blue', 'green', 'yellow', 'red'];
+var names = ['Water', 'Vegetation', 'Bare Land', 'Built-up Area'];
+
+// Create and add the legend items
+for (var i = 0; i < names.length; i++) {
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: palette[i],
+      padding: '8px',
+      margin: '0 0 4px 0'
+    }
+  });
+
+  var description = ui.Label({
+    value: names[i],
+    style: {
+      margin: '0 0 4px 6px'
+    }
+  });
+
+  legend.add(ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  }));
+}
+
+// Add the legend to the map
+Map.add(legend);
+
 //Export image to drive
 Export.image.toDrive({
   image: classified,
