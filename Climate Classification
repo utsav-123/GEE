@@ -1,0 +1,74 @@
+Map.centerObject(geometry,6)
+
+//Load ERA5 monthly aggregated data
+var era = imageCollection
+.filterDate('2000','2020')
+//print(era)
+
+//Select the temperature and precipitation bands
+var climate = era.select('temperature_2m','total_precipitation_sum')
+//print(climate)
+
+//Stack both bands to single image
+var climate_stack = climate.toBands()
+//print(climate_stack)
+
+//Sampling to train the model
+var sample = climate_stack.sample({
+  region:geometry, scale:10000, numPixels:100
+})
+
+//Create a model
+var model = ee.Clusterer.wekaKMeans(4).train(sample)
+
+var climate_map = climate_stack.cluster(model).rename('climate_map')
+
+//Visualize the result
+Map.addLayer(climate_map.clip(geometry),{min:0, max:3},'climate map',false)
+
+//Export result to drive
+Export.image.toDrive({
+  image: climate_map,
+  description: 'climate_map',
+  scale:10000,
+  region: geometry,
+  crs: 'EPSG:4326',
+  folder:'test'
+})
+
+//Calculate area of each class
+var area_img = ee.Image.pixelArea().divide(1e6).addBands(climate_map)
+//print(area_img)
+
+print(
+  ui.Chart.image.byClass(area_img,'climate_map', geometry, ee.Reducer.sum(),10000)
+  )
+
+//Calculate mean, minimum and maximum temperature of each class  
+var temp = era.select('temperature_2m').mean().subtract(273.15)
+var temp_map = temp.addBands(climate_map)
+var temp_mean = temp_map.reduceRegion({
+  reducer:ee.Reducer.mean().group(1), geometry: geometry, scale:10000
+})
+print(temp_mean)
+
+var temp_minmax = temp_map.reduceRegion({
+  reducer:ee.Reducer.minMax().group(1), geometry: geometry, scale:10000
+})
+print(temp_minmax)
+
+//Select class 2 from the climate map
+var class2 = climate_map.eq(2) //binary images including 0 & 1, 1 for pixels related to class 2 and 0 for other pixels
+
+//Import MODIS NDVI 16 days global 500m
+var ndvi = imageCollection2
+.filterDate('2002','2020')
+.map(function(img){
+  var band = img.select('NDVI').multiply(0.0001)
+  return band.updateMask(class2)
+  .copyProperties(img, img.propertyNames())
+})
+
+print(
+  ui.Chart.image.series(ndvi, geometry, ee.Reducer.mean(), 100000, 'system:time_start')
+  )
