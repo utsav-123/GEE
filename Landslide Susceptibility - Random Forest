@@ -1,0 +1,190 @@
+//1. Display input datas
+Map.addLayer(boundary,{},'gandaki')   //Boundary of Gandaki Province
+
+//2. Spatial data preparation
+  var ssm = SMAP.select('ssm').mean();       //Surface soil moisture-NASA-USDA Enhanced SMAP Global Soil Moisture Data
+  var susm = SMAP.select('susm').mean();    //Subsurface soil moisture
+  
+  var rainMean = CHIRPS.mean();             //CHIRPS pentad
+  var rainMax = CHIRPS.max();
+  
+  var elevation = NASADEM.select('elevation');     //NASADEM
+  var slope = ee.Terrain.slope(NASADEM);
+  
+  var alosTopographicDiversity = alosTopo.select('constant');  //Global ALOS Topographic Diversity
+  
+  var alosMtpi = TPI.select('AVE');     //Global ALOS mTPI (Multi-Scale Topographic Position Index)
+ 
+  //3.  Stacking all spatial datas 
+   var parameters = ssm.addBands(susm.rename(["susm"]))
+  .addBands(rainMean.rename("rainMean"))
+  .addBands(rainMax.rename("rainMax"))
+  .addBands(elevation.rename("elevation"))
+  .addBands(slope.rename("slope"))
+  .addBands(alosTopographicDiversity.rename("alosTopographicDiversity"))
+  .addBands(alosMtpi.rename("alosMtpi"));
+ // print(parameters)
+  
+ //4. Landslide and Non-Landslide points generation
+ 
+ //Import the landslide points wrt elevation and set as class 1 
+  var slide = elevation.sampleRegions(landslide, [], 30, 'EPSG:4326', 1, true)   //landslide is shapefile of landslide points
+.map(function(f) {
+        return f.set('class', 1)
+    }).filterBounds(boundary)
+    var slide = slide.select('class')
+    Map.addLayer(slide,{},'slide')
+    
+  //Create non landslide points within the buffer of 60m of landslide points and set as class 0
+  var buffer_size_60 =  60 
+   var buffer_60_function = function(feature) {
+  return feature.buffer(buffer_size_60);
+};
+var buffer_60 = landslide.map(buffer_60_function)
+
+    var nslide = ee.FeatureCollection.randomPoints(boundary, 200)
+    .map(function(f) {
+        return f.set('class', 0)
+    })
+    
+    var nslide = nslide.filter(ee.Filter.bounds(buffer_60).not())
+    Map.addLayer(nslide,{},'nslide')
+  
+  //5.  Training and testing points
+  
+  var withRandom = slide.randomColumn('random');
+  var split = 0.7;  
+  var tr_slide = withRandom.filter(ee.Filter.lt('random', split));
+  var ts_slide = withRandom.filter(ee.Filter.gte('random', split));
+  
+  var nwithRandom = nslide.randomColumn('random');
+  var nsplit = 0.7; 
+  var tr_nslide = nwithRandom.filter(ee.Filter.lt('random', nsplit));
+  var ts_nslide = nwithRandom.filter(ee.Filter.gte('random', nsplit));
+  
+  // Merge training data, the other data is kept for testing AuC
+  var trainingfc= tr_slide.merge(tr_nslide);
+
+  // 6. Data sampling 
+  
+  var bands = ['ssm','susm','rainMean','rainMax','elevation','slope',
+               'alosTopographicDiversity','alosMtpi']; 
+  var training= parameters.select(bands).sampleRegions({
+    collection: trainingfc,properties: ['class'],scale: 90 });
+    //print(training)
+
+//7. The random forest model
+
+var classifier = ee.Classifier.smileRandomForest(10).setOutputMode('PROBABILITY').train({
+    features: training,classProperty: 'class',inputProperties: bands });
+    
+var probability = parameters.select(bands).classify(classifier);
+
+Map.addLayer(probability.clip(boundary),{},'suscep')
+
+//8.  Variable importance
+var dict = classifier.explain();
+  
+  
+  var variable_importance = ee.Feature(
+    null, ee.Dictionary(dict).get('importance')
+  );
+  
+  var chart = ui.Chart.feature.byProperty(variable_importance)
+  .setChartType('ColumnChart')
+.setOptions({
+title: 'Importance of variables',
+legend: {position: 'none'},
+vAxis: {title: 'Variables',
+  titleTextStyle: {italic: false, bold: false}},
+hAxis: {title: 'Importance in %',
+  fontName: 'times new roman',
+  titleTextStyle: {italic: false, bold: false}},
+colors: ['blue'],
+viewWindow: {min: 0, max: 12},
+ fontName: 'times new roman', fontSize: 20, 
+  });
+  
+  print(chart);
+
+ // 9.  ROC - AUC analysis
+  
+  var SLIDE = probability.reduceRegions(ts_slide, ee.Reducer.max().setOutputs(['susc']), 100)
+  .map(function(x) {
+    return x.set('is_target', 1);
+  });
+  
+  var NSLIDE = probability.reduceRegions(ts_nslide, ee.Reducer.max().setOutputs(['susc']), 100)
+  .map(function(x) {
+    return x.set('is_target', 0);
+  });
+  
+  var combined = SLIDE.merge(NSLIDE);
+  
+  var ROC_field = 'susc',
+  ROC_min = 0,
+  ROC_max = 1,
+  ROC_steps = 1000,
+  ROC_points = combined;
+  
+  var ROC = ee.FeatureCollection(
+    ee.List.sequence(ROC_min, ROC_max, null, ROC_steps).map(function(cutoff) {
+      var target_roc = ROC_points.filterMetadata('is_target', 'equals', 1);
+      // true-positive-rate, sensitivity  
+      var TPR = ee.Number(target_roc.filterMetadata(ROC_field, 'greater_than', cutoff).size())
+      .divide(target_roc.size());
+      
+      var non_target_roc = ROC_points.filterMetadata('is_target', 'equals', 0);
+      // true-negative-rate, specificity  
+      var TNR = ee.Number(non_target_roc.filterMetadata(ROC_field, 'less_than', cutoff).size())
+      .divide(non_target_roc.size());
+      
+      return ee.Feature(null, {
+        cutoff: cutoff,
+        TPR: TPR,
+        TNR: TNR,
+        FPR: TNR.subtract(1).multiply(-1),
+        dist: TPR.subtract(1).pow(2).add(TNR.subtract(1).pow(2)).sqrt()
+      });
+    })
+  );
+  
+  // Use trapezoidal approximation for area under curve (AUC)
+  var X = ee.Array(ROC.aggregate_array('FPR')),
+  Y = ee.Array(ROC.aggregate_array('TPR')),
+  Xk_m_Xkm1 = X.slice(0, 1).subtract(X.slice(0, 0, -1)),
+  Yk_p_Ykm1 = Y.slice(0, 1).add(Y.slice(0, 0, -1)),
+  AUC = Xk_m_Xkm1.multiply(Yk_p_Ykm1).multiply(0.5).reduce('sum', [0]).abs().toList().get(0);
+  
+  print(AUC, 'Area under curve');
+  
+  // Plot the ROC curve
+  print(ui.Chart.feature.byFeature(ROC, 'FPR', 'TPR').setOptions({
+    title: 'ROC curve',
+    legend: 'none',
+    hAxis: { title: 'False-positive-rate' },
+    vAxis: { title: 'True-negative-rate' },
+    lineWidth: 2
+  }));
+  
+  // find the cutoff value whose ROC point is closest to (0,1) (= "perfect classification") 
+  var ROC_best = ROC.sort('dist').first().get('cutoff').aside(print, 'best ROC point cutoff'); 
+  
+  
+  //10. Export results to drive
+   Export.table.toDrive({
+    collection: ROC,
+    description: 'roc',
+    folder: 'Landslide Susceptibility',
+    fileFormat: 'CSV'
+  })
+  
+  Export.image.toDrive({
+    image: probability.clip(boundary),
+    description: 'susceptibility',
+    scale: 30,
+    region: boundary,
+    crs: 'EPSG:4326',
+    folder: 'Landslide Susceptibility',
+    maxPixels: 1e13
+  })
