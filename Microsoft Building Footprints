@@ -1,0 +1,32 @@
+// Download Microsoft Building Footprint Data using Google Earth Engine (GEE)
+
+//1. Import Microsoft Building Footprint Data
+var global = ee.data.listAssets('projects/sat-io/open-datasets/MSBuildings');
+print('Assests in MS Global Buildings Footprint Folder', global['assets']); // the code is printing out the list of assets within the 'MS Global Buildings Footprint' 
+print(ee.FeatureCollection('projects/sat-io/open-datasets/MSBuildings/Nepal').size())
+
+//2. Microsoft Building Folder. Check it for Specific Country
+var ee_folder = ee.data.listAssets('projects/sat-io/open-datasets/MSBuildings');
+print(ee_folder)
+
+//3. Building Feature Collection for Microsoft and Google
+var ms_building_Nepal = ee.FeatureCollection('projects/sat-io/open-datasets/MSBuildings/Nepal');
+
+//4. Clip Building with ROI
+var ms_footprint_clip = ms_building_Nepal.filterBounds(roi)
+print((ms_footprint_clip).size());
+
+//5. Add Building to the Map
+Map.addLayer(ms_footprint_clip, {color: 'red'}, 'Microsoft Buildings Footprint');
+
+//6. Set Map Center and Satellite image
+Map.centerObject(roi, 12);
+Map.setOptions("Satellite");
+
+//7. Export Data to Google Drive in GEOJSON format
+Export.table.toDrive({
+collection: ms_footprint_clip,
+description: 'microsoft_buildingfootprint_roi',
+folder: 'GEE_MS_Footprint',
+fileFormat:'GeoJSON',
+});
