@@ -1,0 +1,19 @@
+// Load FAB DEM
+var fabdem = ee.ImageCollection("projects/sat-io/open-datasets/FABDEM")
+var geometry = Table projects/ktmwtrshd  // Load shapefile
+
+// Setting Projection
+var elev = fabdem.mosaic().setDefaultProjection('EPSG:32645',null,30)
+
+// Adding elevation data 
+Map.addLayer(elev.clip(geometry),{},'Elevation')
+
+Export.image.toDrive({
+    image: elev.clip(geometry).float(),
+    description: 'fabdem_ktmwtrshd',
+    scale: 30,
+    region: geometry,
+    crs: elev.getInfo().crs,
+    folder: 'FABDEM_KTM_Wtrshd',
+    maxPixels: 1e13
+  })
