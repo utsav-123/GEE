@@ -1,0 +1,241 @@
+/**
+ * GLACIER THICKNESS & BED TOPOGRAPHY (GLABTOP2 ENSEMBLE)
+ * Study Area: ........
+ * Inputs: 12.5m DEM and Glacier Shapefile
+ */
+
+// 1. ASSET LOADING 
+// REPLACE THESE with your actual GEE Asset IDs
+//var alos12m = ee.Image("YOUR_ASSET_PATH_HERE"); 
+//var glacierROI = ee.FeatureCollection("YOUR_SHAPEFILE_PATH_HERE");
+
+// 2. GLABTOP2 TERRAIN PRE-PROCESSING
+// Corrected: 50m smoothing kernel for 12.5m resolution
+var smoothDem = alos12m.focal_mean(50, 'circle', 'meters');
+var rawSlope = ee.Terrain.slope(smoothDem).multiply(Math.PI / 180);
+
+// GlabTop2 'Slope Floor': 5° (0.087 rad)
+var finalSlope = rawSlope.where(rawSlope.lt(0.087), 0.087);
+
+// 3. PHYSICAL PARAMETERS
+var g = 9.81;
+var f_list = [0.5, 0.6, 0.7, 0.8, 0.9]; // Expanded range
+var tau_list = [50000, 100000, 150000]; 
+var rho_list = [830, 850, 900, 920]; 
+
+// 4. GENERATE 60-MEMBER ENSEMBLE
+var thicknessImages = [];
+
+f_list.forEach(function(f) {
+  tau_list.forEach(function(tau) {
+    rho_list.forEach(function(rho) {
+      var h = ee.Image(tau)
+        .divide(
+          ee.Image(f)
+            .multiply(rho)
+            .multiply(g)
+            .multiply(finalSlope.sin())
+        )
+        .rename('thickness') 
+        .set('f_factor', f)
+        .set('tau', tau)
+        .set('rho', rho);
+        
+      thicknessImages.push(h);
+    });
+  });
+});
+
+var ensembleCol = ee.ImageCollection.fromImages(thicknessImages);
+print('New Ensemble Size:', ensembleCol.size());
+
+// 5. REDUCE & CLIP TO GLACIER BOUNDARY
+// Masking ensures absolute transparency outside the RGI v7.0 outline
+var boundaryMask = ee.Image.constant(1).clipToCollection(glacierROI);
+
+var meanThickness = ensembleCol.mean()
+  .clipToCollection(glacierROI)
+  .updateMask(boundaryMask);
+
+// 6. BED TOPOGRAPHY CALCULATION
+var bedElevation = alos12m.subtract(meanThickness)
+  .clipToCollection(glacierROI)
+  .updateMask(boundaryMask);
+
+// 7. VOLUME CALCULATION
+var stats = meanThickness.multiply(ee.Image.pixelArea()).reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: glacierROI,
+  scale: 12.5,
+  maxPixels: 1e9
+});
+var volKm3 = ee.Number(stats.get('thickness')).divide(1e9);
+
+// 8. VISUALIZATION
+Map.centerObject(glacierROI, 13);
+Map.addLayer(bedElevation, {min: 4500, max: 6500, palette: ['#3e2723', '#ffffff']}, 'Bed Topography (m)');
+Map.addLayer(meanThickness, {min: 0, max: 400, palette: ['blue', 'cyan', 'green', 'yellow', 'red']}, 'Mean Thickness (m)');
+
+// 9. SEPARATE EXPORTS
+Export.image.toDrive({
+  image: meanThickness.float(),
+  description: '......_Thickness_Final',
+  folder: '......_Glacier_Results',
+  scale: 12.5, 
+  region: glacierROI.geometry(), 
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
+
+Export.image.toDrive({
+  image: bedElevation.float(),
+  description: '....._Bed_Final',
+  folder: '......_Glacier_Results',
+  scale: 12.5, 
+  region: glacierROI.geometry(), 
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
+
+print('--- Final Glacier Report ---');
+print('Estimated Volume (km³):', volKm3);
+
+// --- SECTION 10: REFINED OVERLAP VALIDATION ---
+
+// 1. Align and Mask Farinotti to your Glacier ROI
+var observed = farinottithk
+  .reproject({crs: alos12m.projection(), scale: 12.5}) // Force alignment
+  .updateMask(boundaryMask)
+  .rename('observed');
+
+var modeled = meanThickness.rename('modeled');
+
+// 2. CREATE THE JOINT MASK (The "Overlapping Area Only" Logic)
+// This ensures we only compare pixels where both datasets exist
+var jointMask = modeled.gt(0).and(observed.gt(0));
+
+var modeledValid = modeled.updateMask(jointMask);
+var observedValid = observed.updateMask(jointMask);
+
+// 3. Calculate Mean of Observation (using only the overlap)
+var meanObsDict = observedValid.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: glacierROI,
+  scale: 12.5,
+  maxPixels: 1e9
+});
+var meanObs = ee.Number(meanObsDict.get('observed'));
+
+// 4. Create Comparison Bands
+var thicknessDiff = modeledValid.subtract(observedValid).rename('diff');
+var sqDiff = thicknessDiff.pow(2).rename('sqDiff');
+var varianceObs = observedValid.subtract(meanObs).pow(2).rename('varObs');
+
+// 5. Combine for Single Reduction (Performance Optimization)
+var combinedImage = thicknessDiff
+  .addBands(sqDiff)
+  .addBands(varianceObs)
+  .addBands(observedValid);
+
+var statsSum = combinedImage.reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: glacierROI,
+  scale: 12.5,
+  maxPixels: 1e9
+});
+
+// 6. Calculate Pearsons Correlation (R) and R²
+var correlation = modeledValid.addBands(observedValid).reduceRegion({
+  reducer: ee.Reducer.pearsonsCorrelation(),
+  geometry: glacierROI,
+  scale: 12.5,
+  maxPixels: 1e9
+});
+var r2 = ee.Number(correlation.get('correlation')).pow(2);
+
+// 7. Calculate Final Metrics
+var sumSqDiff = ee.Number(statsSum.get('sqDiff'));
+var sumVarObs = ee.Number(statsSum.get('varObs'));
+var sumDiff = ee.Number(statsSum.get('diff'));
+var sumObs = ee.Number(statsSum.get('observed'));
+
+var nse = ee.Number(1).subtract(sumSqDiff.divide(sumVarObs));
+var pbias = sumDiff.divide(sumObs).multiply(100);
+
+// Accurate Pixel Count for RMSE
+var nPixels = ee.Number(combinedImage.select('diff').reduceRegion({
+  reducer: ee.Reducer.count(),
+  geometry: glacierROI,
+  scale: 12.5,
+  maxPixels: 1e9
+}).get('diff'));
+
+var rmse = sumSqDiff.divide(nPixels).sqrt();
+
+print('--- Overlap Validation Metrics ---');
+print('Pixels Analyzed:', nPixels);
+print('NSE (Nash-Sutcliffe):', nse);
+print('PBIAS (%):', pbias);
+print('R²:', r2);
+print('RMSE (meters):', rmse);
+
+// 8. Visualization of Overlap Difference
+Map.addLayer(thicknessDiff, {
+  min: -50, 
+  max: 50, 
+  palette: ['red', 'white', 'blue']
+}, 'Difference (GlabTop2 - Farinotti)');
+
+// --- SECTION 11: AUTOMATED PARAMETER OPTIMIZATION ---
+
+var bestMember = ensembleCol.map(function(img) {
+  // Calculate squared difference for THIS specific member
+  var diff = img.subtract(observedValid).pow(2);
+  
+  var rmseVal = diff.reduceRegion({
+    reducer: ee.Reducer.mean(), // Mean of squared diffs
+    geometry: glacierROI,
+    scale: 12.5,
+    maxPixels: 1e9
+  }).getNumber('thickness').sqrt(); // Square root to get RMSE
+  
+  // Return the image with the RMSE attached as a property
+  return img.set('rmse', rmseVal);
+}).sort('rmse').first(); // Sort by lowest error and take the top one
+
+print('🏆 BEST MODEL MEMBER PARAMETERS 🏆');
+print('Best Shape Factor (f):', bestMember.get('f_factor'));
+print('Best Basal Stress (tau):', bestMember.get('tau'));
+print('Best Density (rho):', bestMember.get('rho'));
+print('Minimum RMSE achieved (m):', bestMember.get('rmse'));
+
+// Add the best-performing member to the map for comparison
+Map.addLayer(bestMember, {min: 0, max: 400, palette: ['blue', 'green', 'red']}, 'Best Fitting Member');
+
+// --- SECTION 12: INSPECTOR DATA COUPLING ---
+
+// Combine the key results into one multi-band image for the Inspector
+var inspectorImage = bestMember.rename('Best_Member')
+  .addBands(meanThickness.rename('Ensemble_Mean'))
+  .addBands(observedValid.rename('Farinotti_Reference'))
+  .addBands(thicknessDiff.rename('Error_Difference'));
+
+// Add as a hidden layer (it holds the data for the Inspector)
+Map.addLayer(inspectorImage, {}, 'Inspector Data (Use Inspector Tab)', false);
+
+print('✅ Inspector ready: Click any point on the glacier to compare values.');
+
+// --- SECTION 13: EXPORT BEST ESTIMATION RASTER ---
+
+Export.image.toDrive({
+  image: bestMember.select('thickness').float(),
+  description: '...._Best_Member_Thickness_Calibrated',
+  folder: '...._Glacier_Results',
+  fileNamePrefix: '....._Thickness_BestFit',
+  scale: 12.5,
+  region: glacierROI.geometry(),
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
+
+print('🚀 Export Task Created: Check the Tasks tab to start the download.');
