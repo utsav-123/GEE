@@ -1,0 +1,113 @@
+/**
+ * 1. Define Area of Interest (AOI)
+ */
+var studyArea = geometry.bounds(); 
+Map.centerObject(studyArea, 13);
+
+/**
+ * 2. Load Sentinel-1 SAR Data & Projections
+ */
+var s1_collection = ee.ImageCollection('COPERNICUS/S1_GRD')
+  .filterBounds(studyArea)
+  .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+  .filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))
+  .select('VV');
+
+var sarProj = s1_collection.first().projection();
+
+/**
+ * 3. Prepare Image Pairs (2020 vs 2025)
+ */
+var img1 = s1_collection.filterDate('2020-01-01', '2020-01-31')
+  .median().reproject({crs: sarProj, scale: 10}).clip(studyArea);
+
+var img2 = s1_collection.filterDate('2025-01-01', '2025-01-31')
+  .median().reproject({crs: sarProj, scale: 10}).clip(studyArea);
+
+/**
+ * 4. Surface Displacement Tracking
+ */
+var displacement = img1.displacement({
+  referenceImage: img2,
+  maxOffset: 150,     
+  patchWidth: 32,    
+  stiffness: 5       
+});
+
+/**
+ * 5. Calculate Outputs
+ */
+var date1 = ee.Date('2020-01-01');
+var date2 = ee.Date('2025-01-01');
+var diffYears = date2.difference(date1, 'year'); 
+
+// A. OVERALL (Large Area)
+var overall_displacement = displacement.select('dx').hypot(displacement.select('dy'))
+  .multiply(10).rename('overall_displacement_m');
+var overall_velocity = overall_displacement.divide(diffYears).rename('overall_velocity_m_yr');
+
+// B. WATERSHED 
+var watershed_displacement = overall_displacement.clip(watershed).rename('watershed_displacement_m');
+var watershed_velocity = overall_velocity.clip(watershed).rename('watershed_velocity_m_yr');
+
+// C. GLACIER ONLY 
+var glacier_displacement = overall_displacement.updateMask(ee.Image.constant(1).clip(table))
+  .rename('glacier_displacement_m');
+var glacier_velocity = overall_velocity.updateMask(ee.Image.constant(1).clip(table))
+  .rename('glacier_velocity_m_yr');
+
+/**
+ * 6. Stable Ground Bias Calculation
+ */
+var stableGroundArea = watershed.geometry().difference(table.geometry(), 1);
+var biasStats = overall_velocity.reduceRegion({
+  reducer: ee.Reducer.mean(),
+  geometry: stableGroundArea,
+  scale: 30,
+  maxPixels: 1e9
+});
+print('Mean Bias Error (m/yr) on Stable Ground within Watershed:', biasStats);
+
+/**
+ * 7. Display in Map
+ */
+var vizDist = {min: 0, max: 400, palette: ['white', 'blue', 'green', 'red']};
+var vizVel = {min: 0, max: 80, palette: ['white', 'cyan', 'yellow', 'orange', 'red']};
+
+// --- Group 1: Overall ---
+Map.addLayer(overall_displacement, vizDist, '1. Overall Displacement (m)', false);
+Map.addLayer(overall_velocity, vizVel, '2. Overall Velocity (m/yr)', false);
+
+// --- Group 2: Watershed ---
+Map.addLayer(watershed_displacement, vizDist, '3. Watershed Displacement (m)', true);
+Map.addLayer(watershed_velocity, vizVel, '4. Watershed Velocity (m/yr)', true);
+
+// --- Group 3: Glacier Only ---
+Map.addLayer(glacier_displacement, vizDist, '5. Glacier Only Displacement (m)', true);
+Map.addLayer(glacier_velocity, vizVel, '6. Glacier Only Velocity (m/yr)', true);
+
+// Reference Layer
+Map.addLayer(stableGroundArea, {color: 'gray', opacity: 0.4}, 'Stable Ground Area');
+
+/**
+ * 8. Export all SIX to Google Drive
+ */
+var outputs = [
+  {img: overall_displacement, desc: 'Overall_Displacement_m'},
+  {img: overall_velocity, desc: 'Overall_Velocity_m_yr'},
+  {img: watershed_displacement, desc: 'Watershed_Displacement_m'},
+  {img: watershed_velocity, desc: 'Watershed_Velocity_m_yr'},
+  {img: glacier_displacement, desc: 'Glacier_Only_Displacement_m'},
+  {img: glacier_velocity, desc: 'Glacier_Only_Velocity_m_yr'}
+];
+
+outputs.forEach(function(item) {
+  Export.image.toDrive({
+    image: item.img,
+    description: 'Lumding_' + item.desc,
+    folder: 'Lumding_SAR_Offtracking',
+    scale: 10,
+    region: studyArea,
+    maxPixels: 1e9
+  });
+});
