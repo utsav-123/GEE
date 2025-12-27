@@ -1,0 +1,75 @@
+/**
+ * 1. Define your Study Area
+ * Ensure you have imported your shapefile and named it 'table'
+ */
+var glacier_shp = table; 
+var studyArea = glacier_shp.geometry();
+
+Map.centerObject(studyArea, 13);
+Map.addLayer(glacier_shp, {color: 'cyan'}, 'Glacier Boundary');
+
+// Load the Collections
+var dhdt_coll = ee.ImageCollection("projects/sat-io/open-datasets/GLOBAL-GLACIER-MASS-LOSS/elevation-change");
+var err_coll = ee.ImageCollection("projects/sat-io/open-datasets/GLOBAL-GLACIER-MASS-LOSS/elevation-change-error");
+
+/**
+ * 2. Processing Function
+ */
+var getHugonnetData = function(collection, dateString, bandName) {
+  var image = collection
+    .filterBounds(studyArea)
+    .filter(ee.Filter.stringContains('system:index', dateString))
+    .first(); 
+    
+  return image.resample('bilinear')
+              .reproject({crs: 'EPSG:4326', scale: 100})
+              .clip(glacier_shp) 
+              .rename(bandName);
+};
+
+var intervals = [
+  {label: 'Total_Trend_2000_2020', tag: '2000-01-01_2020-01-01'},
+  {label: 'Cycle_1_2000_2005',    tag: '2000-01-01_2005-01-01'},
+  {label: 'Cycle_2_2005_2010',    tag: '2005-01-01_2010-01-01'},
+  {label: 'Cycle_3_2010_2015',    tag: '2010-01-01_2015-01-01'},
+  {label: 'Cycle_4_2015_2020',    tag: '2015-01-01_2020-01-01'}
+];
+
+/**
+ * 3. Execution, Stats, and Export
+ */
+intervals.forEach(function(interval) {
+  var dhdt = getHugonnetData(dhdt_coll, interval.tag, 'dhdt');
+  var error = getHugonnetData(err_coll, interval.tag, 'uncertainty');
+  
+  // Combine bands for a single export per period
+  var exportImg = dhdt.addBands(error);
+
+  // Visualization
+  var viz = {min: -2.0, max: 0.5, palette: ['#d7191c', '#ffffff', '#2b83ba']};
+  Map.addLayer(dhdt, viz, interval.label);
+
+  // Zonal Statistics
+  var stats = exportImg.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: studyArea,
+    scale: 100,
+    maxPixels: 1e9
+  });
+  print(interval.label + ' Results:', stats);
+
+  /**
+   * 4. Export to Drive Task
+   * This will create a folder named "Lumding Elevation Change Hugonnet" in your Drive.
+   */
+  Export.image.toDrive({
+    image: exportImg,
+    description: 'Hugonnet_' + interval.label,
+    folder: 'Lumding Elevation Change Hugonnet',
+    fileNamePrefix: 'Lumding_' + interval.label,
+    region: studyArea,
+    scale: 100,
+    crs: 'EPSG:4326',
+    maxPixels: 1e9
+  });
+});
